@@ -1,3 +1,5 @@
+[English](./README.md) | [中文说明](./README_CN.md)
+
 # c-error
 
 Thread-local error code storage library with 53-bit structured error codes.

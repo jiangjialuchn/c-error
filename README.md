@@ -15,7 +15,7 @@ Thread-local error code storage library with 53-bit structured error codes.
   - 11-bit Component ID (module/component identifier)
   - 5-bit Status Code (general status, gRPC-compatible)
   - 16-bit Error Code (specific error number)
-- **Zero Dependencies** - Header-only macros with single-file implementation
+- **Zero Dependencies** - Header-only macros and inline functions (with single-file storage definition)
 - **Source-level Integration** - Simple CMake integration function
 - **C++ RAII Support** - Automatic cleanup of thread-local buffers in C++
 
@@ -33,7 +33,7 @@ Bit Layout (53 bits total):
 ### Field Descriptions
 
 | Field        | Bits    | Range      | Description                           |
-|:------------ |:------- |:---------- |:------------------------------------- |
+|:------------- |:------- |:---------- |:------------------------------------- |
 | Reserved     | [52:40] | 0-8191     | Part C-1: Reserved for future use     |
 | Software ID  | [39:32] | 0-255      | Part C-2: Software/Product identifier |
 | Component ID | [31:21] | 0-2047     | Part C-3: Module/Component identifier |
@@ -80,24 +80,44 @@ target_include_directories(your_app PRIVATE path/to/include)
 
 ## C++ Integration
 
-For C++ applications, a wrapper header `lasterror.hpp` is provided. It includes an RAII helper that automatically cleans up thread-local buffers when the thread exits, eliminating the need to manually call `cleanupThreadLocalErrorBuffer()`.
+For C++ applications, a wrapper header `lasterror.hpp` is provided. It includes an RAII helper that automatically cleans up thread-local buffers when the thread exits, eliminating the need to manually call `cerror_cleanup_thread_local_buffer()`.
 
 ```cpp
 #include <c-error/lasterror.hpp>
 
 void myFunction() {
-    // Use Chameleon namespace wrappers to ensure automatic cleanup
-    Chameleon::setLastErrorInfoCopy(
-        LEON_MAKE_ERROR_CODE(1, 2, 3, 4), 
-        "Dynamic error message"
-    );
+    // 1. Basic usage
+    Chameleon::setLastError(LEON_MAKE_ERROR_CODE(1, 2, 3, 4));
+
+    // 2. With dynamic string (Automatic COPY)
+    std::string dynamicMsg = "Resource " + name + " not found";
+    Chameleon::setLastError(LEON_MAKE_ERROR_CODE(1, 2, 3, 5), dynamicMsg);
+
+    // 3. With char array (Automatic COPY)
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Error at %p", ptr);
+    Chameleon::setLastError(LEON_MAKE_ERROR_CODE(1, 2, 3, 6), buf);
+
+    // 4. With string literal (Automatic NO-COPY / Zero-copy)
+    // Note: Overload for const char(&)[N] assumes static lifetime
+    Chameleon::setLastError(LEON_MAKE_ERROR_CODE(1, 2, 3, 7), "Static error message");
 }
 // Buffer automatically cleaned up when thread exits
 ```
 
-**Note:** You must use the `Chameleon::` wrappers (e.g., `Chameleon::setLastErrorInfoCopy`) or manually reference `Chameleon::g_errorHelper` to activate the automatic cleanup mechanism for the current thread.
+**Note:** You must use the `Chameleon::` wrappers (e.g., `Chameleon::setLastError`) or manually reference `Chameleon::g_errorHelper` to activate the automatic cleanup mechanism for the current thread.
 
-### Prefixed Macros
+### Convenience Overloads (C++)
+
+The `Chameleon` namespace provides several `setLastError` overloads for better ergonomics:
+
+| Overload | Behavior |
+|:--------- |:--------- |
+| `setLastError(uint64_t)` | Sets error code only |
+| `setLastError(uint64_t, const std::string&)` | Sets error code and **copies** string content |
+| `setLastError(uint64_t, char (&)[N])` | Sets error code and **copies** array content |
+| `setLastError(uint64_t, const char (&)[N])` | Sets error code and uses pointer **without copy** (Static literals only!) |
+
 
 The C++ header also provides `LEON_` prefixed aliases for all standard macros, offering a consistent naming convention if desired:
 
@@ -108,7 +128,7 @@ The C++ header also provides `LEON_` prefixed aliases for all standard macros, o
 
 ## Quick Start
 
-### Basic Usage
+### Basic Usage (C API)
 
 ```c
 #include <c-error/lasterror.h>
@@ -116,27 +136,27 @@ The C++ header also provides `LEON_` prefixed aliases for all standard macros, o
 
 int processData(const char* data) {
     if (data == NULL) {
-        setLastError(MAKE_ERROR_CODE(0x01, 0x10, 0x03, 0x0001));
+        cerror_set_last(MAKE_ERROR_CODE(0x01, 0x10, 0x03, 0x0001));
         return 0;  /* failure */
     }
 
     /* Process data... */
-    clearLastError();
+    cerror_clear_last();
     return 1;  /* success */
 }
 
 int main(void) {
     if (!processData(NULL)) {
-        uint64_t err = getLastError();
+        uint64_t err = cerror_get_last();
         printf("Error: 0x%llX\n", (unsigned long long)err);
-        printf("  Software ID: %u\n", getLastSoftwareId());
-        printf("  Component ID: %u\n", getLastComponentId());
-        printf("  Status: %u\n", getLastStatus());
-        printf("  Error Code: %u\n", getLastErrorCode());
+        printf("  Software ID: %u\n", cerror_get_last_software_id());
+        printf("  Component ID: %u\n", cerror_get_last_component_id());
+        printf("  Status: %u\n", cerror_get_last_status());
+        printf("  Error Code: %u\n", cerror_get_last_code());
     }
 
     /* Cleanup before thread exit */
-    cleanupThreadLocalErrorBuffer();
+    cerror_cleanup_thread_local_buffer();
     return 0;
 }
 ```
@@ -163,7 +183,7 @@ uint64_t err = MAKE_ERROR_CODE_32(0x10, 0x05, 0x1234);
 ### Extracting Error Fields
 
 ```c
-uint64_t err = getLastError();
+uint64_t err = cerror_get_last();
 
 uint16_t errorCode = GET_ERROR_CODE(err);
 uint8_t status = GET_STATUS(err);
@@ -171,29 +191,29 @@ uint16_t componentId = GET_COMPONENT_ID(err);
 uint8_t softwareId = GET_SOFTWARE_ID(err);
 
 /* Or use convenience functions */
-uint16_t errorCode = getLastErrorCode();
-uint8_t status = getLastStatus();
-uint16_t componentId = getLastComponentId();
-uint8_t softwareId = getLastSoftwareId();
+uint16_t errorCode = cerror_get_last_code();
+uint8_t status = cerror_get_last_status();
+uint16_t componentId = cerror_get_last_component_id();
+uint8_t softwareId = cerror_get_last_software_id();
 ```
 
 ### Error Info String
 
 ```c
 /* Set error with constant string (no copy) */
-setLastErrorInfo(MAKE_ERROR_CODE(1, 2, 3, 4), "File not found");
+cerror_set_last_info(MAKE_ERROR_CODE(1, 2, 3, 4), "File not found");
 
 /* Set error with copied string (for dynamic strings) */
 char msg[64];
 snprintf(msg, sizeof(msg), "Failed at line %d", lineNum);
-setLastErrorInfoCopy(MAKE_ERROR_CODE(1, 2, 3, 5), msg);
+cerror_set_last_info_copy(MAKE_ERROR_CODE(1, 2, 3, 5), msg);
 
 /* Get error info */
-const char* info = getLastErrorInfo();
+const char* info = cerror_get_last_info();
 printf("Error info: %s\n", info);
 ```
 
-## API Reference
+## API Reference (C)
 
 ### Functions
 
@@ -201,22 +221,30 @@ printf("Error info: %s\n", info);
 
 | Function | Description |
 |:-------- |:----------- |
-| `setLastError(uint64_t)` | Set error code |
-| `getLastError()` | Get error code |
-| `clearLastError()` | Clear error code |
-| `setLastErrorInfo(uint64_t, const char*)` | Set error with constant string |
-| `setLastErrorInfoCopy(uint64_t, const char*)` | Set error with copied string |
-| `getLastErrorInfo()` | Get error info string |
-| `cleanupThreadLocalErrorBuffer()` | Free dynamic buffer before thread exit |
+| `cerror_set_last(uint64_t)` | Set error code |
+| `cerror_get_last()` | Get error code |
+| `cerror_clear_last()` | Clear error code |
+| `cerror_set_last_info(uint64_t, const char*)` | Set error with constant string |
+| `cerror_set_last_info_copy(uint64_t, const char*)` | Set error with copied string |
+| `cerror_get_last_info()` | Get error info string |
+| `cerror_cleanup_thread_local_buffer()` | Free dynamic buffer before thread exit |
 
 #### Field Extraction
 
 | Function | Description |
 |:-------- |:----------- |
-| `getLastErrorCode()` | Get error code field (16 bits) |
-| `getLastStatus()` | Get status field (5 bits) |
-| `getLastComponentId()` | Get component ID (11 bits) |
-| `getLastSoftwareId()` | Get software ID (8 bits) |
+| `cerror_get_last_code()` | Get error code field (16 bits) |
+| `cerror_get_last_status()` | Get status field (5 bits) |
+| `cerror_get_last_component_id()` | Get component ID (11 bits) |
+| `cerror_get_last_software_id()` | Get software ID (8 bits) |
+
+#### Status Utilities
+
+| Function | Description |
+|:-------- |:----------- |
+| `cerror_get_status_code_string(CErrorStatusCode)` | Get string for status code |
+| `cerror_grpc_status_to_http_status(CErrorStatusCode)` | Convert gRPC status to HTTP |
+| `cerror_code_to_http_status(uint64_t)` | Convert error code to HTTP status |
 
 ### Macros
 
@@ -277,15 +305,15 @@ Each thread maintains its own independent error code and buffer.
 
 ```c
 /* Thread A */
-setLastError(MAKE_ERROR_CODE(1, 2, 3, 0x1234));
-printf("Thread A: %llX\n", getLastError());
+cerror_set_last(MAKE_ERROR_CODE(1, 2, 3, 0x1234));
+printf("Thread A: %llX\n", cerror_get_last());
 
 /* Thread B */
-setLastError(MAKE_ERROR_CODE(3, 4, 5, 0x5678));
-printf("Thread B: %llX\n", getLastError());
+cerror_set_last(MAKE_ERROR_CODE(3, 4, 5, 0x5678));
+printf("Thread B: %llX\n", cerror_get_last());
 
 /* Each thread must cleanup its own buffer */
-cleanupThreadLocalErrorBuffer();
+cerror_cleanup_thread_local_buffer();
 ```
 
 ## License
@@ -294,6 +322,10 @@ MIT License
 
 ## Version History
 
+- **2.0.0** - Refactored C API
+  - Namespaced C functions (`cerror_` prefix) to avoid collisions
+  - Removed `lasterror.cpp` (now mostly header-only with inline functions)
+  - Added HTTP/gRPC status code utilities
 - **1.0.0** - Initial release
   - Thread-local error storage
   - 53-bit structured error codes

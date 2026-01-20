@@ -7,6 +7,12 @@
 #include <stdio.h>
 
 /**
+ * @brief Helper to extract reserved field manually since it's not exposed via macro
+ */
+#define GET_RESERVED(ullError) \
+    ((uint16_t)(((ullError) & RESERVED_MASK) >> RESERVED_BIT_POS))
+
+/**
  * @brief Print error code with all fields decoded
  */
 static void printErrorCode(const char* strLabel, const uint64_t ullError)
@@ -26,17 +32,17 @@ static void printErrorCode(const char* strLabel, const uint64_t ullError)
 static int processData(const char* pData, int nSize)
 {
     if (pData == NULL) {
-        setLastError(MAKE_ERROR_CODE(0x01, 0x10, 0x03, 0x0001));  /* Invalid argument */
+        cerror_set_last(MAKE_ERROR_CODE(0x01, 0x10, 0x03, 0x0001));  /* Invalid argument */
         return 0;  /* failure */
     }
 
     if (nSize <= 0) {
-        setLastError(MAKE_ERROR_CODE(0x01, 0x10, 0x03, 0x0002));  /* Invalid size */
+        cerror_set_last(MAKE_ERROR_CODE(0x01, 0x10, 0x03, 0x0002));  /* Invalid size */
         return 0;  /* failure */
     }
 
     /* Success */
-    clearLastError();
+    cerror_clear_last();
     return 1;
 }
 
@@ -55,15 +61,15 @@ int main(void)
     printf("=== Example 1: Success Case ===\n");
     if (processData("test data", 9)) {
         printf("processData succeeded\n");
-        printf("Last error: 0x%llX (should be 0)\n", (unsigned long long)getLastError());
-        printf("isLastSuccess: %d\n\n", isLastSuccess());
+        printf("Last error: 0x%llX (should be 0)\n", (unsigned long long)cerror_get_last());
+        printf("isLastSuccess: %d\n\n", (cerror_get_last() == 0));
     }
 
     /* Example 2: NULL pointer error */
     printf("=== Example 2: NULL Pointer Error ===\n");
     if (!processData(NULL, 10)) {
         printf("processData failed\n");
-        uint64_t ullError = getLastError();
+        uint64_t ullError = cerror_get_last();
         printErrorCode("Error details", ullError);
     }
 
@@ -71,10 +77,10 @@ int main(void)
     printf("=== Example 3: Invalid Size Error ===\n");
     if (!processData("test", 0)) {
         printf("processData failed\n");
-        printf("Error code: 0x%04X\n", getLastErrorCode());
-        printf("Status: 0x%02X\n", getLastStatus());
-        printf("Component ID: 0x%03X\n", getLastComponentId());
-        printf("Software ID: 0x%02X\n\n", getLastSoftwareId());
+        printf("Error code: 0x%04X\n", cerror_get_last_code());
+        printf("Status: 0x%02X\n", cerror_get_last_status());
+        printf("Component ID: 0x%03X\n", cerror_get_last_component_id());
+        printf("Software ID: 0x%02X\n\n", cerror_get_last_software_id());
     }
 
     /* Example 4: Constructing complex error codes */
@@ -88,17 +94,17 @@ int main(void)
         0x8901   /* error code */
     );
 
-    setLastError(ullComplexError);
-    printErrorCode("Complex error", getLastError());
+    cerror_set_last(ullComplexError);
+    printErrorCode("Complex error", cerror_get_last());
 
     /* Example 5: Simple error code */
     printf("=== Example 5: Simple Error Code ===\n");
-    setLastError(MAKE_SIMPLE_ERROR(0x11, 0x222, 0x3333));
-    printErrorCode("Simple error", getLastError());
+    cerror_set_last(MAKE_ERROR_CODE_32(0x11, 0x05, 0x3333));
+    printErrorCode("Simple error", cerror_get_last());
 
     /* Example 6: Validation */
     printf("=== Example 6: Error Code Validation ===\n");
-    uint64_t ullValidError = MAKE_SIMPLE_ERROR(0x01, 0x02, 0x0003);
+    uint64_t ullValidError = MAKE_ERROR_CODE_32(0x01, 0x02, 0x0003);
     uint64_t ullInvalidError = 0xFFFFFFFFFFFFFFFFULL;
 
     printf("Valid error code: %d (should be 1)\n", IS_VALID_ERROR_CODE(ullValidError));
@@ -110,7 +116,7 @@ int main(void)
     printf("Example completed!\n");
 
     /* Cleanup the dynamic buffer before thread exit to avoid memory leak */
-    cleanupThreadLocalErrorBuffer();
+    cerror_cleanup_thread_local_buffer();
 
     return 0;
 }

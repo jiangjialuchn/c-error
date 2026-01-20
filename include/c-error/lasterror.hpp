@@ -14,8 +14,29 @@ namespace Chameleon
         inline void gc() {static thread_local CErrorHelper helper; (void)helper;}
     }
 
+    // Forward declarations for overloaded setLastError functions
+    inline void setLastErrorInfo(const uint64_t ullError, const char* pszErrorInfo);
+    inline void setLastErrorInfoCopy(const uint64_t ullError, const char* pszErrorInfo);
+
     // C++ Wrapper: Set the thread-local last error code.Ensures cleanup helper is initialized.
     inline void setLastError(const uint64_t ullError) {d::gc(); cerror_set_last(ullError);}
+    
+    // COPY
+    template <size_t N>
+    inline void setLastError(uint64_t err, char (&info)[N]) {
+        setLastErrorInfoCopy(err, info);
+    }
+
+    // NO-COPY ATTENTION: const char danger[] = "Wrong!"; 
+    template <size_t N>
+    inline void setLastError(uint64_t err, const char (&info)[N]) {
+        setLastErrorInfo(err, info);
+    }
+
+    // COPY
+    inline void setLastError(uint64_t err, const std::string& info) {
+        setLastErrorInfoCopy(err, info.c_str());
+    }
 
     inline uint64_t getLastError() {return cerror_get_last();}
 

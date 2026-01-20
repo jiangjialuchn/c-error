@@ -156,15 +156,14 @@ typedef struct ErrorContext
 /* ============================================================================
  * Thread-local Storage Declaration
  * ============================================================================ */
-
 /**
  * @brief Thread-local error context variable
  *
  * Uses compiler-specific thread-local storage keywords for zero-overhead access.
  * The buffer (pszLastErrorInfoBuffer) is lazily allocated and must be manually
- * freed before thread exit by calling cleanupThreadLocalErrorBuffer().
+ * freed before thread exit by calling cerror_cleanup_thread_local_buffer().
  */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__)
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__) 
     /* C11 standard thread-local storage */
     extern _Thread_local ErrorContext g_LastErrorCtx;
 #elif defined(_MSC_VER)
@@ -183,16 +182,16 @@ typedef struct ErrorContext
  * Call this function before thread exit to free the dynamically allocated buffer.
  * Failure to call this function will result in memory leak (buffer only, not the context).
  */
-void cleanupThreadLocalErrorBuffer(void);
+void cerror_cleanup_thread_local_buffer(void);
 
 /* ============================================================================
- * Inline Function Implementations
+ * Inline Function Implementations (New C-Style API)
  * ============================================================================ */
 
 /**
  * @brief Set the thread-local last error code
  */
-static inline void setLastError(const uint64_t ullError)
+static inline void cerror_set_last(const uint64_t ullError)
 {
     /* Store only valid 53-bit error code (mask off upper 11 bits) */
     g_LastErrorCtx.ullLastError = ullError & VALID_ERROR_MASK;
@@ -201,7 +200,7 @@ static inline void setLastError(const uint64_t ullError)
 /**
  * @brief Get the thread-local last error code
  */
-static inline uint64_t getLastError(void)
+static inline uint64_t cerror_get_last(void)
 {
     return g_LastErrorCtx.ullLastError;
 }
@@ -209,7 +208,7 @@ static inline uint64_t getLastError(void)
 /**
  * @brief Clear the thread-local last error code
  */
-static inline void clearLastError(void)
+static inline void cerror_clear_last(void)
 {
     g_LastErrorCtx.ullLastError = 0ULL;
     g_LastErrorCtx.pszLastErrorInfo = NULL;
@@ -223,7 +222,7 @@ static inline void clearLastError(void)
 /**
  * @brief Get the error code field from last error
  */
-static inline uint16_t getLastErrorCode(void)
+static inline uint16_t cerror_get_last_code(void)
 {
     return GET_ERROR_CODE(g_LastErrorCtx.ullLastError);
 }
@@ -231,7 +230,7 @@ static inline uint16_t getLastErrorCode(void)
 /**
  * @brief Get the status field from last error
  */
-static inline uint8_t getLastStatus(void)
+static inline uint8_t cerror_get_last_status(void)
 {
     return GET_STATUS(g_LastErrorCtx.ullLastError);
 }
@@ -239,7 +238,7 @@ static inline uint8_t getLastStatus(void)
 /**
  * @brief Get the component ID field from last error
  */
-static inline uint16_t getLastComponentId(void)
+static inline uint16_t cerror_get_last_component_id(void)
 {
     return GET_COMPONENT_ID(g_LastErrorCtx.ullLastError);
 }
@@ -247,7 +246,7 @@ static inline uint16_t getLastComponentId(void)
 /**
  * @brief Get the software ID field from last error
  */
-static inline uint8_t getLastSoftwareId(void)
+static inline uint8_t cerror_get_last_software_id(void)
 {
     return GET_SOFTWARE_ID(g_LastErrorCtx.ullLastError);
 }
@@ -255,9 +254,9 @@ static inline uint8_t getLastSoftwareId(void)
 /**
  * @brief Set thread-local error code with constant info string (no copy)
  */
-static inline void setLastErrorInfo(const uint64_t ullError, const char* pszErrorInfo)
+static inline void cerror_set_last_info(const uint64_t ullError, const char* pszErrorInfo)
 {
-    setLastError(ullError);
+    cerror_set_last(ullError);
     /* Store pointer to constant string (no copy, NULL allowed) */
     g_LastErrorCtx.pszLastErrorInfo = pszErrorInfo;
 }
@@ -268,7 +267,7 @@ static inline void setLastErrorInfo(const uint64_t ullError, const char* pszErro
  * Uses Small String Optimization (SSO) to avoid allocation for short strings.
  * For longer strings, uses lazy-allocated dynamic buffer with 2x growth strategy.
  */
-static inline void setLastErrorInfoCopy(const uint64_t ullError, const char* pszErrorInfo)
+static inline void cerror_set_last_info_copy(const uint64_t ullError, const char* pszErrorInfo)
 {
     if (NULL == pszErrorInfo)
     {
@@ -276,7 +275,7 @@ static inline void setLastErrorInfoCopy(const uint64_t ullError, const char* psz
         return;
     }
 
-    setLastError(ullError);
+    cerror_set_last(ullError);
 
     /* Calculate required capacity (including null terminator) */
     const size_t nLength = strlen(pszErrorInfo);
@@ -326,11 +325,114 @@ static inline void setLastErrorInfoCopy(const uint64_t ullError, const char* psz
 /**
  * @brief Get the thread-local error info string
  */
-static inline const char* getLastErrorInfo(void)
+static inline const char* cerror_get_last_info(void)
 {
     /* Return pointer directly (NULL if no info) */ 
     return NULL == g_LastErrorCtx.pszLastErrorInfo ? "" : g_LastErrorCtx.pszLastErrorInfo;
 }
+
+// ============================================================================
+// Status Code Utilities
+// ============================================================================
+/**
+ * @brief gRPC-compatible status codes (5-bit: 0-31)
+ */
+typedef enum CErrorStatusCode {
+    CERROR_OK                  = 0,
+    CERROR_CANCELLED           = 1,
+    CERROR_UNKNOWN             = 2,
+    CERROR_INVALID_ARGUMENT    = 3,
+    CERROR_DEADLINE_EXCEEDED   = 4,
+    CERROR_NOT_FOUND           = 5,
+    CERROR_ALREADY_EXISTS      = 6,
+    CERROR_PERMISSION_DENIED   = 7,
+    CERROR_RESOURCE_EXHAUSTED  = 8,
+    CERROR_FAILED_PRECONDITION = 9,
+    CERROR_ABORTED             = 10,
+    CERROR_OUT_OF_RANGE        = 11,
+    CERROR_UNIMPLEMENTED       = 12,
+    CERROR_INTERNAL            = 13,
+    CERROR_UNAVAILABLE         = 14,
+    CERROR_DATA_LOSS           = 15,
+    CERROR_UNAUTHENTICATED     = 16,
+    CERROR_STATUS_MAX          = 16
+} CErrorStatusCode;
+/**
+ * @brief Get string representation of status code
+ */
+static inline const char* cerror_get_status_code_string(const CErrorStatusCode statusCode)
+{
+    switch (statusCode) {
+        case CERROR_OK:                  return "OK";
+        case CERROR_CANCELLED:           return "CANCELLED";
+        case CERROR_UNKNOWN:             return "UNKNOWN";
+        case CERROR_INVALID_ARGUMENT:    return "INVALID_ARGUMENT";
+        case CERROR_DEADLINE_EXCEEDED:   return "DEADLINE_EXCEEDED";
+        case CERROR_NOT_FOUND:           return "NOT_FOUND";
+        case CERROR_ALREADY_EXISTS:      return "ALREADY_EXISTS";
+        case CERROR_PERMISSION_DENIED:   return "PERMISSION_DENIED";
+        case CERROR_RESOURCE_EXHAUSTED:  return "RESOURCE_EXHAUSTED";
+        case CERROR_FAILED_PRECONDITION: return "FAILED_PRECONDITION";
+        case CERROR_ABORTED:             return "ABORTED";
+        case CERROR_OUT_OF_RANGE:        return "OUT_OF_RANGE";
+        case CERROR_UNIMPLEMENTED:       return "UNIMPLEMENTED";
+        case CERROR_INTERNAL:            return "INTERNAL";
+        case CERROR_UNAVAILABLE:         return "UNAVAILABLE";
+        case CERROR_DATA_LOSS:           return "DATA_LOSS";
+        case CERROR_UNAUTHENTICATED:     return "UNAUTHENTICATED";
+        default:                         return "UNKNOWN_STATUS";
+    }
+}
+
+/**
+ * @brief Convert gRPC status to HTTP status code
+ */
+static inline int cerror_grpc_status_to_http_status(const CErrorStatusCode status)
+{
+    switch (status) {
+        case CERROR_OK:                  return 200;
+        case CERROR_INVALID_ARGUMENT:    return 400;
+        case CERROR_FAILED_PRECONDITION: return 400;
+        case CERROR_OUT_OF_RANGE:        return 400;
+        case CERROR_UNAUTHENTICATED:     return 401;
+        case CERROR_PERMISSION_DENIED:   return 403;
+        case CERROR_NOT_FOUND:           return 404;
+        case CERROR_ABORTED:             return 409;
+        case CERROR_ALREADY_EXISTS:      return 409;
+        case CERROR_RESOURCE_EXHAUSTED:  return 429;
+        case CERROR_CANCELLED:           return 499;
+        case CERROR_UNKNOWN:             return 500;
+        case CERROR_INTERNAL:            return 500;
+        case CERROR_DATA_LOSS:           return 500;
+        case CERROR_UNIMPLEMENTED:       return 501;
+        case CERROR_UNAVAILABLE:         return 503;
+        case CERROR_DEADLINE_EXCEEDED:   return 504;
+        default:                         return 500;
+    }
+}
+
+/**
+ * @brief Convert error code (full or status only) to HTTP status code
+ */
+static inline int cerror_code_to_http_status(const uint64_t ullError)
+{
+    if (ullError == 0) return 200;
+    /* Extract status (5 bits) using the macro from lasterror.h */
+    return cerror_grpc_status_to_http_status((CErrorStatusCode)GET_STATUS(ullError));
+}
+
+static inline const char* getStatusCodeString(const CErrorStatusCode statusCode) {
+    return cerror_get_status_code_string(statusCode);
+}
+
+static inline int grpcStatusToHttpStatus(const CErrorStatusCode status) {
+    return cerror_grpc_status_to_http_status(status);
+}
+
+static inline int errorCodeToHttpStatus(const uint64_t ullError) {
+    return cerror_code_to_http_status(ullError);
+}
+
 
 #ifdef __cplusplus
 }

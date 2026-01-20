@@ -49,7 +49,7 @@
  *       The context (g_LastErrorCtx) is managed by the compiler and will be
  *       automatically destroyed when the thread exits.
  */
-void cleanupThreadLocalErrorBuffer(void)
+void cerror_cleanup_thread_local_buffer(void)
 {
     /* Free the dynamic buffer if allocated */
     if (NULL != g_LastErrorCtx.pszLastErrorInfoBuffer)

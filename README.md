@@ -17,6 +17,7 @@ Thread-local error code storage library with 53-bit structured error codes.
   - 16-bit Error Code (specific error number)
 - **Zero Dependencies** - Header-only macros with single-file implementation
 - **Source-level Integration** - Simple CMake integration function
+- **C++ RAII Support** - Automatic cleanup of thread-local buffers in C++
 
 ## Error Code Structure
 
@@ -76,6 +77,34 @@ add_executable(your_app
 )
 target_include_directories(your_app PRIVATE path/to/include)
 ```
+
+## C++ Integration
+
+For C++ applications, a wrapper header `lasterror.hpp` is provided. It includes an RAII helper that automatically cleans up thread-local buffers when the thread exits, eliminating the need to manually call `cleanupThreadLocalErrorBuffer()`.
+
+```cpp
+#include <c-error/lasterror.hpp>
+
+void myFunction() {
+    // Use Chameleon namespace wrappers to ensure automatic cleanup
+    Chameleon::setLastErrorInfoCopy(
+        LEON_MAKE_ERROR_CODE(1, 2, 3, 4), 
+        "Dynamic error message"
+    );
+}
+// Buffer automatically cleaned up when thread exits
+```
+
+**Note:** You must use the `Chameleon::` wrappers (e.g., `Chameleon::setLastErrorInfoCopy`) or manually reference `Chameleon::g_errorHelper` to activate the automatic cleanup mechanism for the current thread.
+
+### Prefixed Macros
+
+The C++ header also provides `LEON_` prefixed aliases for all standard macros, offering a consistent naming convention if desired:
+
+- `LEON_MAKE_ERROR_CODE`
+- `LEON_GET_ERROR_CODE`
+- `LEON_IS_VALID_ERROR_CODE`
+- ...and so on for all bit fields and definitions.
 
 ## Quick Start
 

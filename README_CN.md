@@ -17,6 +17,7 @@
   - 16 位错误码（具体错误编号）
 - **零依赖** - 仅头文件宏 + 单文件实现
 - **源码级集成** - 简单的 CMake 集成函数
+- **C++ RAII 支持** - C++ 中自动清理线程本地缓冲区
 
 ## 错误码结构
 
@@ -76,6 +77,34 @@ add_executable(your_app
 )
 target_include_directories(your_app PRIVATE path/to/include)
 ```
+
+## C++ 集成
+
+对于 C++ 应用程序，库提供了封装头文件 `lasterror.hpp`。该文件包含一个 RAII 辅助类，可以在线程退出时自动清理线程本地缓冲区，无需手动调用 `cleanupThreadLocalErrorBuffer()`。
+
+```cpp
+#include <c-error/lasterror.hpp>
+
+void myFunction() {
+    // 使用 Chameleon 命名空间下的封装函数以确保自动清理
+    Chameleon::setLastErrorInfoCopy(
+        LEON_MAKE_ERROR_CODE(1, 2, 3, 4), 
+        "Dynamic error message"
+    );
+}
+// 线程退出时缓冲区会自动清理
+```
+
+**注意：** 您必须使用 `Chameleon::` 封装函数（如 `Chameleon::setLastErrorInfoCopy`）或手动引用 `Chameleon::g_errorHelper` 才能激活当前线程的自动清理机制。
+
+### 带前缀的宏
+
+C++ 头文件还为所有标准宏提供了 `LEON_` 前缀的别名，以便在需要时提供一致的命名约定：
+
+- `LEON_MAKE_ERROR_CODE`
+- `LEON_GET_ERROR_CODE`
+- `LEON_IS_VALID_ERROR_CODE`
+- ...以及所有位字段定义和常量。
 
 ## 快速入门
 
